@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 #
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
@@ -16,35 +15,52 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
+"""
+DaskExecutor.
 
-import distributed
+.. seealso::
+    For more information on how the DaskExecutor works, take a look at the guide:
+    :ref:`executor:DaskExecutor`
+"""
+from __future__ import annotations
+
 import subprocess
-import warnings
+from typing import TYPE_CHECKING, Any
 
-from airflow import configuration
-from airflow.executors.base_executor import BaseExecutor
+from distributed import Client, Future, as_completed
+from distributed.security import Security
+
+from airflow.configuration import conf
+from airflow.exceptions import AirflowException
+from airflow.executors.base_executor import BaseExecutor, CommandType
+from airflow.models.taskinstance import TaskInstanceKey
+
+# queue="default" is a special case since this is the base config default queue name,
+# with respect to DaskExecutor, treat it as if no queue is provided
+_UNDEFINED_QUEUES = {None, "default"}
 
 
 class DaskExecutor(BaseExecutor):
-    """
-    DaskExecutor submits tasks to a Dask Distributed cluster.
-    """
+    """DaskExecutor submits tasks to a Dask Distributed cluster."""
+
+    supports_pickling: bool = False
+
     def __init__(self, cluster_address=None):
+        super().__init__(parallelism=0)
         if cluster_address is None:
-            cluster_address = configuration.conf.get('dask', 'cluster_address')
+            cluster_address = conf.get("dask", "cluster_address")
         if not cluster_address:
-            raise ValueError(
-                'Please provide a Dask cluster address in airflow.cfg')
+            raise ValueError("Please provide a Dask cluster address in airflow.cfg")
         self.cluster_address = cluster_address
         # ssl / tls parameters
-        self.tls_ca = configuration.get('dask', 'tls_ca')
-        self.tls_key = configuration.get('dask', 'tls_key')
-        self.tls_cert = configuration.get('dask', 'tls_cert')
-        super().__init__(parallelism=0)
+        self.tls_ca = conf.get("dask", "tls_ca")
+        self.tls_key = conf.get("dask", "tls_key")
+        self.tls_cert = conf.get("dask", "tls_cert")
+        self.client: Client | None = None
+        self.futures: dict[Future, TaskInstanceKey] | None = None
 
-    def start(self):
+    def start(self) -> None:
         if self.tls_ca or self.tls_key or self.tls_cert:
-            from distributed.security import Security
             security = Security(
                 tls_client_key=self.tls_key,
                 tls_client_cert=self.tls_cert,
@@ -54,23 +70,42 @@ class DaskExecutor(BaseExecutor):
         else:
             security = None
 
-        self.client = distributed.Client(self.cluster_address, security=security)
+        self.client = Client(self.cluster_address, security=security)
         self.futures = {}
 
-    def execute_async(self, key, command, queue=None, executor_config=None):
-        if queue is not None:
-            warnings.warn(
-                'DaskExecutor does not support queues. '
-                'All tasks will be run in the same cluster'
-            )
+    def execute_async(
+        self,
+        key: TaskInstanceKey,
+        command: CommandType,
+        queue: str | None = None,
+        executor_config: Any | None = None,
+    ) -> None:
+        if TYPE_CHECKING:
+            assert self.client
+
+        self.validate_airflow_tasks_run_command(command)
 
         def airflow_run():
-            return subprocess.check_call(command, shell=True, close_fds=True)
+            return subprocess.check_call(command, close_fds=True)
 
-        future = self.client.submit(airflow_run, pure=False)
-        self.futures[future] = key
+        resources = None
+        if queue not in _UNDEFINED_QUEUES:
+            scheduler_info = self.client.scheduler_info()
+            avail_queues = {
+                resource for d in scheduler_info["workers"].values() for resource in d["resources"]
+            }
 
-    def _process_future(self, future):
+            if queue not in avail_queues:
+                raise AirflowException(f"Attempted to submit task to an unavailable queue: '{queue}'")
+            resources = {queue: 1}
+
+        future = self.client.submit(subprocess.check_call, command, pure=False, resources=resources)
+        self.futures[future] = key  # type: ignore
+
+    def _process_future(self, future: Future) -> None:
+        if TYPE_CHECKING:
+            assert self.futures
+
         if future.done():
             key = self.futures[future]
             if future.exception():
@@ -83,15 +118,26 @@ class DaskExecutor(BaseExecutor):
                 self.success(key)
             self.futures.pop(future)
 
-    def sync(self):
+    def sync(self) -> None:
+        if TYPE_CHECKING:
+            assert self.futures
+
         # make a copy so futures can be popped during iteration
         for future in self.futures.copy():
             self._process_future(future)
 
-    def end(self):
-        for future in distributed.as_completed(self.futures.copy()):
+    def end(self) -> None:
+        if TYPE_CHECKING:
+            assert self.client
+            assert self.futures
+
+        self.client.cancel(list(self.futures.keys()))
+        for future in as_completed(self.futures.copy()):
             self._process_future(future)
 
     def terminate(self):
+        if TYPE_CHECKING:
+            assert self.futures
+
         self.client.cancel(self.futures.keys())
         self.end()

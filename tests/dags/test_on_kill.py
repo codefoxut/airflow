@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 #
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
@@ -16,30 +15,41 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
+from __future__ import annotations
+
 import time
 
 from airflow.models import DAG
-from airflow.operators.dummy_operator import DummyOperator
+from airflow.operators.empty import EmptyOperator
+from airflow.utils.context import Context
 from airflow.utils.timezone import datetime
 
 
-class DummyWithOnKill(DummyOperator):
-    def execute(self, context):
+class DummyWithOnKill(EmptyOperator):
+    def execute(self, context: Context):
+        import os
+
+        self.log.info("Signalling that I am running")
+        # signal to the test that we've started
+        with open("/tmp/airflow_on_kill_running", "w") as f:
+            f.write("ON_KILL_RUNNING")
+        self.log.info("Signalled")
+
+        # This runs extra processes, so that we can be sure that we correctly
+        # tidy up all processes launched by a task when killing
+        if not os.fork():
+            os.system("sleep 10")
         time.sleep(10)
 
     def on_kill(self):
         self.log.info("Executing on_kill")
-        f = open("/tmp/airflow_on_kill", "w")
-        f.write("ON_KILL_TEST")
-        f.close()
+        with open("/tmp/airflow_on_kill_killed", "w") as f:
+            f.write("ON_KILL_TEST")
+        self.log.info("Executed on_kill")
 
 
 # DAG tests backfill with pooled tasks
 # Previously backfill would queue the task but never run it
-dag1 = DAG(
-    dag_id='test_on_kill',
-    start_date=datetime(2015, 1, 1))
-dag1_task1 = DummyWithOnKill(
-    task_id='task1',
-    dag=dag1,
-    owner='airflow')
+dag1 = DAG(dag_id="test_on_kill", start_date=datetime(2015, 1, 1))
+
+dag1_task1 = DummyWithOnKill(task_id="task1", dag=dag1, owner="airflow")

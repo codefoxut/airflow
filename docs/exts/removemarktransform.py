@@ -1,6 +1,3 @@
-# -*- coding: utf-8 -*-
-#
-# flake8: noqa
 # Disable Flake8 because of all the sphinx imports
 #
 # Licensed to the Apache Software Foundation (ASF) under one
@@ -19,15 +16,17 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
+"""Remove Transform Mark for Sphinx"""
+from __future__ import annotations
 
 import re
 
 from docutils import nodes
-from pygments.lexers import guess_lexer, Python3Lexer, PythonLexer
+from pygments.lexers import Python3Lexer, PythonLexer, guess_lexer
 from sphinx.transforms import SphinxTransform
 from sphinx.transforms.post_transforms.code import TrimDoctestFlagsTransform
 
-docmark_re = re.compile(r"\s*#\s*\[(START|END)\s*[a-z_A-Z]+\].*$", re.MULTILINE)
+docmark_re = re.compile(r"\s*#\s*\[(START|END)\s*[a-z_A-Z]+].*$", re.MULTILINE)
 
 
 class TrimDocMarkerFlagsTransform(SphinxTransform):
@@ -50,8 +49,8 @@ class TrimDocMarkerFlagsTransform(SphinxTransform):
                 node[:] = [nodes.Text(source)]
 
     @staticmethod
-    def is_pycode(node):
-        # type: (nodes.literal_block) -> bool
+    def is_pycode(node: nodes.literal_block) -> bool:
+        """Checks if the node is literal block of python"""
         if node.rawsource != node.astext():
             return False  # skip parsed-literal node
 
@@ -61,7 +60,7 @@ class TrimDocMarkerFlagsTransform(SphinxTransform):
         elif language == "guess":
             try:
                 lexer = guess_lexer(node.rawsource)
-                return isinstance(lexer, PythonLexer) or isinstance(lexer, Python3Lexer)
+                return isinstance(lexer, (PythonLexer, Python3Lexer))
             except Exception:
                 pass
 
@@ -69,6 +68,7 @@ class TrimDocMarkerFlagsTransform(SphinxTransform):
 
 
 def setup(app):
+    """Sets the transform up"""
     app.add_post_transform(TrimDocMarkerFlagsTransform)
 
-    return {"version": "builtin", "parallel_read_safe": False, "parallel_write_safe": False}
+    return {"version": "builtin", "parallel_read_safe": True, "parallel_write_safe": True}

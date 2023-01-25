@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 #
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
@@ -16,19 +15,27 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
+"""Default authentication backend - everything is allowed."""
+from __future__ import annotations
 
 from functools import wraps
+from typing import Any, Callable, TypeVar, cast
 
-client_auth = None
-
-
-def init_app(app):
-    pass
+CLIENT_AUTH: tuple[str, str] | Any | None = None
 
 
-def requires_authentication(function):
+def init_app(_):
+    """Initialize authentication backend."""
+
+
+T = TypeVar("T", bound=Callable)
+
+
+def requires_authentication(function: T):
+    """Decorate functions that require authentication."""
+
     @wraps(function)
     def decorated(*args, **kwargs):
         return function(*args, **kwargs)
 
-    return decorated
+    return cast(T, decorated)

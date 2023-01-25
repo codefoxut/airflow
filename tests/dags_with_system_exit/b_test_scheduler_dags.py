@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 #
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
@@ -16,19 +15,15 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
+from __future__ import annotations
 
 from datetime import datetime
 
 from airflow.models import DAG
-from airflow.operators.dummy_operator import DummyOperator
+from airflow.operators.empty import EmptyOperator
 
 DEFAULT_DATE = datetime(2000, 1, 1)
 
-dag1 = DAG(
-    dag_id='exit_test_dag',
-    start_date=DEFAULT_DATE)
+dag1 = DAG(dag_id="exit_test_dag", start_date=DEFAULT_DATE)
 
-dag1_task1 = DummyOperator(
-    task_id='dummy',
-    dag=dag1,
-    owner='airflow')
+dag1_task1 = EmptyOperator(task_id="dummy", dag=dag1, owner="airflow")

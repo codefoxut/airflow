@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 #
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
@@ -16,23 +15,41 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
+"""Helper function to generate a DAG and operators given some arguments."""
+from __future__ import annotations
 
-from airflow.models import DAG
-from airflow.operators.dummy_operator import DummyOperator
+# [START subdag]
+import pendulum
+
+from airflow import DAG
+from airflow.operators.empty import EmptyOperator
 
 
-def subdag(parent_dag_name, child_dag_name, args):
+def subdag(parent_dag_name, child_dag_name, args) -> DAG:
+    """
+    Generate a DAG to be used as a subdag.
+
+    :param str parent_dag_name: Id of the parent DAG
+    :param str child_dag_name: Id of the child DAG
+    :param dict args: Default arguments to provide to the subdag
+    :return: DAG to use as a subdag
+    """
     dag_subdag = DAG(
-        dag_id='%s.%s' % (parent_dag_name, child_dag_name),
+        dag_id=f"{parent_dag_name}.{child_dag_name}",
         default_args=args,
-        schedule_interval="@daily",
+        start_date=pendulum.datetime(2021, 1, 1, tz="UTC"),
+        catchup=False,
+        schedule="@daily",
     )
 
     for i in range(5):
-        DummyOperator(
-            task_id='%s-task-%s' % (child_dag_name, i + 1),
+        EmptyOperator(
+            task_id=f"{child_dag_name}-task-{i + 1}",
             default_args=args,
             dag=dag_subdag,
         )
 
     return dag_subdag
+
+
+# [END subdag]

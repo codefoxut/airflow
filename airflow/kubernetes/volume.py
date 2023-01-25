@@ -1,3 +1,4 @@
+#
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
@@ -14,20 +15,19 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
+"""This module is deprecated. Please use :mod:`kubernetes.client.models.V1Volume`."""
+from __future__ import annotations
 
+import warnings
 
-class Volume:
-    """Defines Kubernetes Volume"""
+from airflow.exceptions import RemovedInAirflow3Warning
 
-    def __init__(self, name, configs):
-        """ Adds Kubernetes Volume to pod. allows pod to access features like ConfigMaps
-        and Persistent Volumes
-        :param name: the name of the volume mount
-        :type name: str
-        :param configs: dictionary of any features needed for volume.
-        We purposely keep this vague since there are multiple volume types with changing
-        configs.
-        :type configs: dict
-        """
-        self.name = name
-        self.configs = configs
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore", RemovedInAirflow3Warning)
+    from airflow.providers.cncf.kubernetes.backcompat.volume import Volume  # noqa: autoflake
+
+warnings.warn(
+    "This module is deprecated. Please use `kubernetes.client.models.V1Volume`.",
+    RemovedInAirflow3Warning,
+    stacklevel=2,
+)

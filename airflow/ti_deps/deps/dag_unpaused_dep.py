@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 #
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
@@ -16,17 +15,19 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
+from __future__ import annotations
 
 from airflow.ti_deps.deps.base_ti_dep import BaseTIDep
-from airflow.utils.db import provide_session
+from airflow.utils.session import provide_session
 
 
 class DagUnpausedDep(BaseTIDep):
+    """Determines whether a task's DAG is not paused."""
+
     NAME = "Dag Not Paused"
-    IGNOREABLE = True
+    IGNORABLE = True
 
     @provide_session
     def _get_dep_statuses(self, ti, session, dep_context):
-        if ti.task.dag.is_paused:
-            yield self._failing_status(
-                reason="Task's DAG '{0}' is paused.".format(ti.dag_id))
+        if ti.task.dag.get_is_paused(session):
+            yield self._failing_status(reason=f"Task's DAG '{ti.dag_id}' is paused.")

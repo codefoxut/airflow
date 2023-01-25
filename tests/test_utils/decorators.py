@@ -1,5 +1,3 @@
-# -*- coding: utf-8 -*-
-#
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
@@ -16,33 +14,58 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
+from __future__ import annotations
 
-from contextlib import ContextDecorator
+import functools
+from unittest.mock import patch
 
-from unittest.mock import Mock
-
-from airflow import conf
+from airflow.www.app import purge_cached_app
 
 
-# So we don't depend on actual value in the test config.
-class mock_conf_get(ContextDecorator):
-    def __init__(self, mock_section, mock_key, mock_return_value):
-        self.mock_section = mock_section
-        self.mock_key = mock_key
-        self.mock_return_value = mock_return_value
+def dont_initialize_flask_app_submodules(_func=None, *, skip_all_except=None):
+    if not skip_all_except:
+        skip_all_except = []
 
-    def __enter__(self):
-        self.old_conf_get = conf.getint
+    def decorator_dont_initialize_flask_app_submodules(f):
+        def no_op(*args, **kwargs):
+            pass
 
-        def side_effect(section, key):
-            if section == self.mock_section and key == self.mock_key:
-                return self.mock_return_value
-            else:
-                return self.old_conf_get(section, key)
+        methods = [
+            "init_api_experimental_auth",
+            "init_flash_views",
+            "init_appbuilder_links",
+            "init_appbuilder_views",
+            "init_plugins",
+            "init_connection_form",
+            "init_error_handlers",
+            "init_api_connexion",
+            "init_api_internal",
+            "init_api_experimental",
+            "sync_appbuilder_roles",
+            "init_jinja_globals",
+            "init_xframe_protection",
+            "init_airflow_session_interface",
+            "init_appbuilder",
+            "init_check_user_active",
+        ]
 
-        conf.getint = Mock(side_effect=side_effect)
-        return self
+        @functools.wraps(f)
+        def func(*args, **kwargs):
 
-    def __exit__(self, *exc):
-        conf.getint = self.old_conf_get
-        return False
+            for method in methods:
+                if method not in skip_all_except:
+                    patcher = patch(f"airflow.www.app.{method}", no_op)
+                    patcher.start()
+            purge_cached_app()
+            result = f(*args, **kwargs)
+            patch.stopall()
+            purge_cached_app()
+
+            return result
+
+        return func
+
+    if _func is None:
+        return decorator_dont_initialize_flask_app_submodules
+    else:
+        return decorator_dont_initialize_flask_app_submodules(_func)

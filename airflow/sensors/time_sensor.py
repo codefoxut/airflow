@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 #
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
@@ -16,10 +15,14 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
+from __future__ import annotations
 
-from airflow.sensors.base_sensor_operator import BaseSensorOperator
+import datetime
+
+from airflow.sensors.base import BaseSensorOperator
+from airflow.triggers.temporal import DateTimeTrigger
 from airflow.utils import timezone
-from airflow.utils.decorators import apply_defaults
+from airflow.utils.context import Context
 
 
 class TimeSensor(BaseSensorOperator):
@@ -27,14 +30,51 @@ class TimeSensor(BaseSensorOperator):
     Waits until the specified time of the day.
 
     :param target_time: time after which the job succeeds
-    :type target_time: datetime.time
+
+    .. seealso::
+        For more information on how to use this sensor, take a look at the guide:
+        :ref:`howto/operator:TimeSensor`
+
     """
 
-    @apply_defaults
-    def __init__(self, target_time, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, *, target_time, **kwargs):
+        super().__init__(**kwargs)
         self.target_time = target_time
 
-    def poke(self, context):
-        self.log.info('Checking if the time (%s) has come', self.target_time)
-        return timezone.utcnow().time() > self.target_time
+    def poke(self, context: Context):
+        self.log.info("Checking if the time (%s) has come", self.target_time)
+        return timezone.make_naive(timezone.utcnow(), self.dag.timezone).time() > self.target_time
+
+
+class TimeSensorAsync(BaseSensorOperator):
+    """
+    Waits until the specified time of the day.
+
+    This frees up a worker slot while it is waiting.
+
+    :param target_time: time after which the job succeeds
+
+    .. seealso::
+        For more information on how to use this sensor, take a look at the guide:
+        :ref:`howto/operator:TimeSensorAsync`
+    """
+
+    def __init__(self, *, target_time, **kwargs):
+        super().__init__(**kwargs)
+        self.target_time = target_time
+
+        aware_time = timezone.coerce_datetime(
+            datetime.datetime.combine(datetime.datetime.today(), self.target_time)
+        )
+
+        self.target_datetime = timezone.convert_to_utc(aware_time)
+
+    def execute(self, context: Context):
+        self.defer(
+            trigger=DateTimeTrigger(moment=self.target_datetime),
+            method_name="execute_complete",
+        )
+
+    def execute_complete(self, context, event=None):
+        """Callback for when the trigger fires - returns immediately."""
+        return None

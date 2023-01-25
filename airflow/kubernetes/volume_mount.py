@@ -1,3 +1,4 @@
+#
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
@@ -14,24 +15,19 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
+"""This module is deprecated. Please use :mod:`kubernetes.client.models.V1VolumeMount`."""
+from __future__ import annotations
 
+import warnings
 
-class VolumeMount:
-    """Defines Kubernetes Volume Mount"""
+from airflow.exceptions import RemovedInAirflow3Warning
 
-    def __init__(self, name, mount_path, sub_path, read_only):
-        """Initialize a Kubernetes Volume Mount. Used to mount pod level volumes to
-        running container.
-        :param name: the name of the volume mount
-        :type name: str
-        :param mount_path:
-        :type mount_path: str
-        :param sub_path: subpath within the volume mount
-        :type sub_path: str
-        :param read_only: whether to access pod with read-only mode
-        :type read_only: bool
-        """
-        self.name = name
-        self.mount_path = mount_path
-        self.sub_path = sub_path
-        self.read_only = read_only
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore", RemovedInAirflow3Warning)
+    from airflow.providers.cncf.kubernetes.backcompat.volume_mount import VolumeMount  # noqa: autoflake
+
+warnings.warn(
+    "This module is deprecated. Please use `kubernetes.client.models.V1VolumeMount`.",
+    RemovedInAirflow3Warning,
+    stacklevel=2,
+)

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 #
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
@@ -16,112 +15,154 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
+from __future__ import annotations
 
-import gzip
 import functools
-import pendulum
+import gzip
+import json
+import logging
 from io import BytesIO as IO
-from flask import after_this_request, flash, redirect, request, url_for, g
+from itertools import chain
+from typing import Callable, TypeVar, cast
+
+import pendulum
+from flask import after_this_request, g, request
+from pendulum.parsing.exceptions import ParserError
+
 from airflow.models import Log
-from airflow.utils.db import create_session
+from airflow.utils.log import secrets_masker
+from airflow.utils.session import create_session
+
+T = TypeVar("T", bound=Callable)
+
+logger = logging.getLogger(__name__)
 
 
-def action_logging(f):
+def _mask_variable_fields(extra_fields):
     """
-    Decorator to log user actions
+    The variable requests values and args comes in this form:
+    [('key', 'key_content'),('val', 'val_content'), ('description', 'description_content')]
+    So we need to mask the 'val_content' field if 'key_content' is in the mask list.
     """
-    @functools.wraps(f)
-    def wrapper(*args, **kwargs):
-
-        with create_session() as session:
-            if g.user.is_anonymous:
-                user = 'anonymous'
-            else:
-                user = g.user.username
-
-            log = Log(
-                event=f.__name__,
-                task_instance=None,
-                owner=user,
-                extra=str(list(request.args.items())),
-                task_id=request.args.get('task_id'),
-                dag_id=request.args.get('dag_id'))
-
-            if 'execution_date' in request.args:
-                log.execution_date = pendulum.parse(
-                    request.args.get('execution_date'))
-
-            session.add(log)
-
-        return f(*args, **kwargs)
-
-    return wrapper
+    result = []
+    keyname = None
+    for k, v in extra_fields:
+        if k == "key":
+            keyname = v
+            result.append((k, v))
+        elif keyname and k == "val":
+            x = secrets_masker.redact(v, keyname)
+            result.append((k, x))
+            keyname = None
+        else:
+            result.append((k, v))
+    return result
 
 
-def gzipped(f):
-    """
-    Decorator to make a view compressed
-    """
+def _mask_connection_fields(extra_fields):
+    """Mask connection fields"""
+    result = []
+    for k, v in extra_fields:
+        if k == "extra":
+            try:
+                extra = json.loads(v)
+                extra = [(k, secrets_masker.redact(v, k)) for k, v in extra.items()]
+                result.append((k, json.dumps(dict(extra))))
+            except json.JSONDecodeError:
+                result.append((k, "Encountered non-JSON in `extra` field"))
+        else:
+            result.append((k, secrets_masker.redact(v, k)))
+    return result
+
+
+def action_logging(func: Callable | None = None, event: str | None = None) -> Callable[[T], T]:
+    """Decorator to log user actions"""
+
+    def log_action(f: T) -> T:
+        @functools.wraps(f)
+        def wrapper(*args, **kwargs):
+            __tracebackhide__ = True  # Hide from pytest traceback.
+
+            with create_session() as session:
+                if g.user.is_anonymous:
+                    user = "anonymous"
+                else:
+                    user = g.user.username
+
+                fields_skip_logging = {"csrf_token", "_csrf_token"}
+                extra_fields = [
+                    (k, secrets_masker.redact(v, k))
+                    for k, v in chain(request.values.items(multi=True), request.view_args.items())
+                    if k not in fields_skip_logging
+                ]
+                if event and event.startswith("variable."):
+                    extra_fields = _mask_variable_fields(extra_fields)
+                if event and event.startswith("connection."):
+                    extra_fields = _mask_connection_fields(extra_fields)
+
+                params = {k: v for k, v in chain(request.values.items(), request.view_args.items())}
+
+                log = Log(
+                    event=event or f.__name__,
+                    task_instance=None,
+                    owner=user,
+                    extra=str(extra_fields),
+                    task_id=params.get("task_id"),
+                    dag_id=params.get("dag_id"),
+                )
+
+                if "execution_date" in request.values:
+                    execution_date_value = request.values.get("execution_date")
+                    try:
+                        log.execution_date = pendulum.parse(execution_date_value, strict=False)
+                    except ParserError:
+                        logger.exception(
+                            "Failed to parse execution_date from the request: %s", execution_date_value
+                        )
+
+                session.add(log)
+
+            return f(*args, **kwargs)
+
+        return cast(T, wrapper)
+
+    if func:
+        return log_action(func)
+    return log_action
+
+
+def gzipped(f: T) -> T:
+    """Decorator to make a view compressed"""
+
     @functools.wraps(f)
     def view_func(*args, **kwargs):
         @after_this_request
         def zipper(response):
-            accept_encoding = request.headers.get('Accept-Encoding', '')
+            accept_encoding = request.headers.get("Accept-Encoding", "")
 
-            if 'gzip' not in accept_encoding.lower():
+            if "gzip" not in accept_encoding.lower():
                 return response
 
             response.direct_passthrough = False
 
-            if (response.status_code < 200 or response.status_code >= 300 or
-                    'Content-Encoding' in response.headers):
+            if (
+                response.status_code < 200
+                or response.status_code >= 300
+                or "Content-Encoding" in response.headers
+            ):
                 return response
             gzip_buffer = IO()
-            gzip_file = gzip.GzipFile(mode='wb',
-                                      fileobj=gzip_buffer)
+            gzip_file = gzip.GzipFile(mode="wb", fileobj=gzip_buffer)
             gzip_file.write(response.data)
             gzip_file.close()
 
             response.data = gzip_buffer.getvalue()
-            response.headers['Content-Encoding'] = 'gzip'
-            response.headers['Vary'] = 'Accept-Encoding'
-            response.headers['Content-Length'] = len(response.data)
+            response.headers["Content-Encoding"] = "gzip"
+            response.headers["Vary"] = "Accept-Encoding"
+            response.headers["Content-Length"] = len(response.data)
 
             return response
 
         return f(*args, **kwargs)
 
-    return view_func
-
-
-def has_dag_access(**dag_kwargs):
-    """
-    Decorator to check whether the user has read / write permission on the dag.
-    """
-    def decorator(f):
-        @functools.wraps(f)
-        def wrapper(self, *args, **kwargs):
-            has_access = self.appbuilder.sm.has_access
-            dag_id = request.values.get('dag_id')
-            # if it is false, we need to check whether user has write access on the dag
-            can_dag_edit = dag_kwargs.get('can_dag_edit', False)
-
-            # 1. check whether the user has can_dag_edit permissions on all_dags
-            # 2. if 1 false, check whether the user
-            #    has can_dag_edit permissions on the dag
-            # 3. if 2 false, check whether it is can_dag_read view,
-            #    and whether user has the permissions
-            if (
-                has_access('can_dag_edit', 'all_dags') or
-                has_access('can_dag_edit', dag_id) or (not can_dag_edit and
-                                                       (has_access('can_dag_read',
-                                                                   'all_dags') or
-                                                        has_access('can_dag_read',
-                                                                   dag_id)))):
-                return f(self, *args, **kwargs)
-            else:
-                flash("Access is Denied", "danger")
-                return redirect(url_for(self.appbuilder.sm.auth_view.
-                                        __class__.__name__ + ".login"))
-        return wrapper
-    return decorator
+    return cast(T, view_func)

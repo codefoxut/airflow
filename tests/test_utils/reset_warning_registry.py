@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 #
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
@@ -16,10 +15,11 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
+from __future__ import annotations
 
 import re
 import sys
-
+from typing import Match
 
 # We need to explicitly clear the warning registry context
 # https://docs.python.org/2/library/warnings.html
@@ -28,8 +28,9 @@ import sys
 # not be seen again unless the warnings registry related to the warning has
 # been cleared.
 #
+
+
 # Proposed fix from Stack overflow, which refers to the Python bug-page
-# noqa
 # https://stackoverflow.com/questions/19428761/python-showing-once-warnings-again-resetting-all-warning-registries
 class reset_warning_registry:
     """
@@ -42,10 +43,10 @@ class reset_warning_registry:
     """
 
     #: regexp for filtering which modules are reset
-    _pattern = None
+    _pattern: Match[str] | None = None
 
     #: dict mapping module name -> old registry contents
-    _backup = None
+    _backup: dict | None = None
 
     def __init__(self, pattern=None):
         self._pattern = re.compile(pattern or ".*")
@@ -58,7 +59,7 @@ class reset_warning_registry:
         for name, mod in list(sys.modules.items()):
             if pattern.match(name):
                 reg = getattr(mod, "__warningregistry__", None)
-                if reg:
+                if reg and isinstance(reg, dict):
                     backup[name] = reg.copy()
                     reg.clear()
         return self
@@ -83,5 +84,5 @@ class reset_warning_registry:
         for name, mod in list(modules.items()):
             if pattern.match(name) and name not in backup:
                 reg = getattr(mod, "__warningregistry__", None)
-                if reg:
+                if reg and isinstance(reg, dict):
                     reg.clear()

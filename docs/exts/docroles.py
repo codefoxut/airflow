@@ -1,37 +1,43 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
 #
-# Licensed to the Apache Software Foundation (ASF) under one or more
-# contributor license agreements.  See the NOTICE file distributed with
-# this work for additional information regarding copyright ownership.
-# The ASF licenses this file to You under the Apache License, Version 2.0
-# (the "License"); you may not use this file except in compliance with
-# the License.  You may obtain a copy of the License at
+#   http://www.apache.org/licenses/LICENSE-2.0
 #
-#    http://www.apache.org/licenses/LICENSE-2.0
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+"""Document roles"""
+from __future__ import annotations
+
 #
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 #
+from functools import partial
 
 from docutils import nodes, utils
-from sphinx.ext.autodoc.importer import import_module, mock
-from functools import partial
+from sphinx.ext.autodoc.importer import import_module
+from sphinx.ext.autodoc.mock import mock
 
 
 class RoleException(Exception):
-    pass
+    """Exception for roles extension"""
 
 
-def get_template_field(env, fullname):
+def get_template_field(env, fullname) -> list[str]:
     """
     Gets template fields for specific operator class.
 
+    :param env: env config
     :param fullname: Full path to operator class.
-        For example: ``airflow.contrib.operators.gcp_vision_operator.CloudVisionProductSetCreateOperator``
+        For example: ``airflow.providers.google.cloud.operators.vision.CloudVisionCreateProductSetOperator``
     :return: List of template field
-    :rtype: list[str]
     """
     modname, classname = fullname.rsplit(".", 1)
 
@@ -39,23 +45,30 @@ def get_template_field(env, fullname):
         with mock(env.config.autodoc_mock_imports):
             mod = import_module(modname)
     except ImportError:
-        raise RoleException("Error loading %s module." % (modname, ))
+        raise RoleException(f"Error loading {modname} module.")
 
     clazz = getattr(mod, classname)
     if not clazz:
-        raise RoleException("Error finding %s class in %s module." % (classname, modname))
+        raise RoleException(f"Error finding {classname} class in {modname} module.")
 
     template_fields = getattr(clazz, "template_fields")
 
     if not template_fields:
-        raise RoleException(
-            "Could not find the template fields for %s class in %s module." % (classname, modname)
-        )
+        raise RoleException(f"Could not find the template fields for {classname} class in {modname} module.")
 
     return list(template_fields)
 
 
-def template_field_role(app, typ, rawtext, text, lineno, inliner, options={}, content=[]):
+def template_field_role(
+    app,
+    typ,
+    rawtext,
+    text,
+    lineno,
+    inliner,
+    options=None,
+    content=None,
+):
     """
     A role that allows you to include a list of template fields in the middle of the text. This is especially
     useful when writing guides describing how to use the operator.
@@ -63,19 +76,26 @@ def template_field_role(app, typ, rawtext, text, lineno, inliner, options={}, co
 
     Sample usage::
 
-    :template-fields:`airflow.contrib.operators.gcp_natural_language_operator.CloudLanguageAnalyzeSentimentOperator`
+    :template-fields:`airflow.operators.bash.BashOperator`
 
     For further information look at:
 
     * [http://docutils.sourceforge.net/docs/howto/rst-roles.html](Creating reStructuredText Interpreted
       Text Roles)
     """
+    if options is None:
+        options = {}
+    if content is None:
+        content = []
     text = utils.unescape(text)
 
     try:
         template_fields = get_template_field(app.env, text)
     except RoleException as e:
-        msg = inliner.reporter.error("invalid class name %s \n%s" % (text, e, ), line=lineno)
+        msg = inliner.reporter.error(
+            f"invalid class name {text} \n{e}",
+            line=lineno,
+        )
         prb = inliner.problematic(rawtext, rawtext, msg)
         return [prb], [msg]
 
@@ -89,7 +109,9 @@ def template_field_role(app, typ, rawtext, text, lineno, inliner, options={}, co
 
 
 def setup(app):
+    """Sets the extension up"""
     from docutils.parsers.rst import roles
+
     roles.register_local_role("template-fields", partial(template_field_role, app))
 
     return {"version": "builtin", "parallel_read_safe": True, "parallel_write_safe": True}

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 #
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
@@ -16,9 +15,10 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
+from __future__ import annotations
 
 import dill
-from sqlalchemy import Column, Integer, PickleType, Text
+from sqlalchemy import BigInteger, Column, Integer, PickleType
 
 from airflow.models.base import Base
 from airflow.utils import timezone
@@ -27,7 +27,7 @@ from airflow.utils.sqlalchemy import UtcDateTime
 
 class DagPickle(Base):
     """
-    Dags can originate from different places (user repos, master repo, ...)
+    Dags can originate from different places (user repos, main repo, ...)
     and also get executed in different places (different executors). This
     object represents a version of a DAG and becomes a source of truth for
     a BackfillJob execution. A pickle is a native python serialized object,
@@ -40,13 +40,13 @@ class DagPickle(Base):
     id = Column(Integer, primary_key=True)
     pickle = Column(PickleType(pickler=dill))
     created_dttm = Column(UtcDateTime, default=timezone.utcnow)
-    pickle_hash = Column(Text)
+    pickle_hash = Column(BigInteger)
 
     __tablename__ = "dag_pickle"
 
     def __init__(self, dag):
         self.dag_id = dag.dag_id
-        if hasattr(dag, 'template_env'):
+        if hasattr(dag, "template_env"):
             dag.template_env = None
         self.pickle_hash = hash(dag)
         self.pickle = dag

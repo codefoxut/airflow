@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 #
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
@@ -16,45 +15,105 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-#
-
 """
+Init setup.
+
 Authentication is implemented using flask_login and different environments can
 implement their own login mechanisms by providing an `airflow_login` module
-in their PYTHONPATH. airflow_login should be based off the
-`airflow.www.login`
+in their PYTHONPATH. airflow_login should be based off the `airflow.www.login`
+
+isort:skip_file
 """
-from builtins import object
-from airflow import version
-from airflow.utils.log.logging_mixin import LoggingMixin
-
-__version__ = version.version
-
-import sys
+from __future__ import annotations
 
 # flake8: noqa: F401
-from airflow import settings, configuration as conf
-from airflow.models import DAG
-from airflow.exceptions import AirflowException
 
-settings.initialize()
+import os
+import sys
+from typing import Callable
 
-login = None
+if os.environ.get("_AIRFLOW_PATCH_GEVENT"):
+    # If you are using gevents and start airflow webserver, you might want to run gevent monkeypatching
+    # as one of the first thing when Airflow is started. This allows gevent to patch networking and other
+    # system libraries to make them gevent-compatible before anything else patches them (for example boto)
+    from gevent.monkey import patch_all
+
+    patch_all()
+
+from airflow import settings
+
+__all__ = ["__version__", "login", "DAG", "PY36", "PY37", "PY38", "PY39", "PY310", "XComArg"]
+
+# Make `airflow` an namespace package, supporting installing
+# airflow.providers.* in different locations (i.e. one in site, and one in user
+# lib.)
+__path__ = __import__("pkgutil").extend_path(__path__, __name__)  # type: ignore
 
 
-class AirflowMacroPlugin:
-    def __init__(self, namespace):
-        self.namespace = namespace
+# Perform side-effects unless someone has explicitly opted out before import
+# WARNING: DO NOT USE THIS UNLESS YOU REALLY KNOW WHAT YOU'RE DOING.
+if not os.environ.get("_AIRFLOW__AS_LIBRARY", None):
+    settings.initialize()
+
+login: Callable | None = None
+
+PY36 = sys.version_info >= (3, 6)
+PY37 = sys.version_info >= (3, 7)
+PY38 = sys.version_info >= (3, 8)
+PY39 = sys.version_info >= (3, 9)
+PY310 = sys.version_info >= (3, 10)
+
+# Things to lazy import in form {local_name: ('target_module', 'target_name')}
+__lazy_imports: dict[str, tuple[str, str]] = {
+    "DAG": (".models.dag", "DAG"),
+    "Dataset": (".datasets", "Dataset"),
+    "XComArg": (".models.xcom_arg", "XComArg"),
+    "AirflowException": (".exceptions", "AirflowException"),
+    "version": (".version", ""),
+    "__version__": (".version", "version"),
+}
 
 
-from airflow import operators  # noqa: E402
-from airflow import sensors  # noqa: E402
-from airflow import hooks  # noqa: E402
-from airflow import executors  # noqa: E402
-from airflow import macros  # noqa: E402
+def __getattr__(name: str):
+    # PEP-562: Lazy loaded attributes on python modules
+    module_path, attr_name = __lazy_imports.get(name, ("", ""))
+    if not module_path:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
-operators._integrate_plugins()
-sensors._integrate_plugins()  # noqa: E402
-hooks._integrate_plugins()
-executors._integrate_plugins()
-macros._integrate_plugins()
+    import importlib
+
+    mod = importlib.import_module(module_path, __name__)
+    if attr_name:
+        val = getattr(mod, attr_name)
+    else:
+        val = mod
+
+    # Store for next time
+    globals()[name] = val
+    return val
+
+
+if not settings.LAZY_LOAD_PLUGINS:
+    from airflow import plugins_manager
+
+    plugins_manager.ensure_plugins_loaded()
+
+if not settings.LAZY_LOAD_PROVIDERS:
+    from airflow import providers_manager
+
+    manager = providers_manager.ProvidersManager()
+    manager.initialize_providers_list()
+    manager.initialize_providers_hooks()
+    manager.initialize_providers_extra_links()
+
+
+# This is never executed, but tricks static analyzers (PyDev, PyCharm,)
+# into knowing the types of these symbols, and what
+# they contain.
+STATICA_HACK = True
+globals()["kcah_acitats"[::-1].upper()] = False
+if STATICA_HACK:  # pragma: no cover
+    from airflow.models.dag import DAG
+    from airflow.models.xcom_arg import XComArg
+    from airflow.exceptions import AirflowException
+    from airflow.models.dataset import Dataset

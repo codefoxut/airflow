@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 #
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
@@ -16,9 +15,3 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-#
-
-from airflow.jobs.base_job import BaseJob  # noqa: F401
-from airflow.jobs.backfill_job import BackfillJob  # noqa: F401
-from airflow.jobs.scheduler_job import DagFileProcessor, SchedulerJob  # noqa: F401
-from airflow.jobs.local_task_job import LocalTaskJob  # noqa: F401

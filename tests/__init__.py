@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 #
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
@@ -16,8 +15,8 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
+from __future__ import annotations
 
-# flake8: noqa
+from pathlib import Path
 
-from .api import *  # type: ignore
-from .core import *  # type: ignore
+REPO_ROOT = Path(__file__).parent.parent

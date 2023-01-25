@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 #
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
@@ -16,22 +15,29 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
+"""Client for all the API clients."""
+from __future__ import annotations
+
+import httpx
 
 
 class Client:
     """Base API client for all API clients."""
 
-    def __init__(self, api_base_url, auth):
+    def __init__(self, api_base_url, auth=None, session: httpx.Client | None = None):
         self._api_base_url = api_base_url
-        self._auth = auth
+        self._session: httpx.Client = session or httpx.Client()
+        if auth:
+            self._session.auth = auth
 
-    def trigger_dag(self, dag_id, run_id=None, conf=None, execution_date=None):
+    def trigger_dag(self, dag_id, run_id=None, conf=None, execution_date=None, replace_microseconds=True):
         """Create a dag run for the specified dag.
 
         :param dag_id:
         :param run_id:
         :param conf:
         :param execution_date:
+        :param replace_microseconds:
         :return:
         """
         raise NotImplementedError()
@@ -67,5 +73,14 @@ class Client:
         """Delete pool.
 
         :param name: pool name
+        """
+        raise NotImplementedError()
+
+    def get_lineage(self, dag_id: str, execution_date: str):
+        """
+        Return the lineage information for the dag on this execution date.
+        :param dag_id:
+        :param execution_date:
+        :return:
         """
         raise NotImplementedError()

@@ -1,5 +1,3 @@
-# -*- coding: utf-8 -*-
-#
 # flake8: noqa
 # Disable Flake8 because of all the sphinx imports
 #
@@ -19,26 +17,36 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
+from __future__ import annotations
 
+"""Nice formatted include for examples"""
+import traceback
 from os import path
 
 from docutils import nodes
-from docutils.parsers.rst import directives
-from six import text_type
-from sphinx import addnodes
+
+# No stub exists for docutils.parsers.rst.directives. See https://github.com/python/typeshed/issues/5755.
+from docutils.parsers.rst import directives  # type: ignore[attr-defined]
 from sphinx.directives.code import LiteralIncludeReader
+from sphinx.ext.viewcode import viewcode_anchor
 from sphinx.locale import _
 from sphinx.pycode import ModuleAnalyzer
-from sphinx.util import logging
-from sphinx.util import parselinenos
+from sphinx.util import logging, parselinenos
 from sphinx.util.docutils import SphinxDirective
 from sphinx.util.nodes import set_source_info
+
+try:
+    import sphinx_airflow_theme  # noqa: autoflake
+
+    airflow_theme_is_available = True
+except ImportError:
+    airflow_theme_is_available = False
 
 logger = logging.getLogger(__name__)
 
 
-class example_header(nodes.reference, nodes.FixedTextElement):
-    pass
+class ExampleHeader(nodes.reference, nodes.FixedTextElement):
+    """Header for examples."""
 
 
 class ExampleInclude(SphinxDirective):
@@ -80,10 +88,10 @@ class ExampleInclude(SphinxDirective):
         document = self.state.document
         if not document.settings.file_insertion_enabled:
             return [document.reporter.warning("File insertion disabled", line=self.lineno)]
-        # convert options['diff'] to absolute path
+        # convert options['diff'] to absolute a_path
         if "diff" in self.options:
-            _, path = self.env.relfn2path(self.options["diff"])
-            self.options["diff"] = path
+            _, a_path = self.env.relfn2path(self.options["diff"])
+            self.options["diff"] = a_path
 
         try:
             location = self.state_machine.get_source_and_line(self.lineno)
@@ -113,32 +121,47 @@ class ExampleInclude(SphinxDirective):
                 extra_args["hl_lines"] = [x + 1 for x in hl_lines if x < lines]
             extra_args["linenostart"] = reader.lineno_start
 
-            container_node = nodes.container("", literal_block=True, classes=["example-block-wrapper"])
-            container_node += example_header(filename=filename)
+            container_node = nodes.compound(classes=["example-block-wrapper"])
+            container_node += ExampleHeader(filename=filename)
             container_node += retnode
             retnode = container_node
 
             return [retnode]
         except Exception as exc:
-            return [document.reporter.warning(text_type(exc), line=self.lineno)]
+            return [document.reporter.warning(str(exc), line=self.lineno)]
 
 
 def register_source(app, env, modname):
-    entry = env._viewcode_modules.get(modname, None)  # type: ignore
+    """
+    Registers source code.
+
+    :param app: application
+    :param env: environment of the plugin
+    :param modname: name of the module to load
+    :return: True if the code is registered successfully, False otherwise
+    """
+    entry = env._viewcode_modules.get(modname, None)
     if entry is False:
-        print("[%s] Entry is false for " % modname)
-        return
+        print(f"[{modname}] Entry is false for ")
+        return False
 
     code_tags = app.emit_firstresult("viewcode-find-source", modname)
     if code_tags is None:
         try:
             analyzer = ModuleAnalyzer.for_module(modname)
         except Exception as ex:
-            logger.info("Module \"%s\" could not be loaded. Full source will not be available.", modname)
-            env._viewcode_modules[modname] = False  # type: ignore
+            logger.info(
+                'Module "%s" could not be loaded. Full source will not be available. "%s"', modname, ex
+            )
+            # We cannot use regular warnings or exception methods because those warnings are interpreted
+            # by running python process and converted into "real" warnings, so we need to print the
+            # traceback here at info level
+            tb = traceback.format_exc()
+            logger.info("%s", tb)
+            env._viewcode_modules[modname] = False
             return False
 
-        if not isinstance(analyzer.code, text_type):
+        if not isinstance(analyzer.code, str):
             code = analyzer.code.decode(analyzer.encoding)
         else:
             code = analyzer.code
@@ -150,15 +173,21 @@ def register_source(app, env, modname):
         code, tags = code_tags
 
     if entry is None or entry[0] != code:
-        # print("Registeted", entry)
-
         entry = code, tags, {}, ""
-        env._viewcode_modules[modname] = entry  # type: ignore
+        env._viewcode_modules[modname] = entry
 
     return True
 
 
-def create_node(app, env, relative_path, show_button):
+def create_node(env, relative_path, show_button):
+    """
+    Creates documentation node for example include.
+
+    :param env: environment of the documentation
+    :param relative_path: path of the code
+    :param show_button: whether to show "view code" button
+    :return paragraph with the node
+    """
     pagename = "_modules/" + relative_path[:-3]
 
     header_classes = ["example-header"]
@@ -167,11 +196,7 @@ def create_node(app, env, relative_path, show_button):
     paragraph = nodes.paragraph(relative_path, classes=header_classes)
     paragraph += nodes.inline("", relative_path, classes=["example-title"])
     if show_button:
-        pending_ref = addnodes.pending_xref(
-            "",
-            reftype="viewcode",
-            refdomain="std",
-            refexplicit=False,
+        pending_ref = viewcode_anchor(
             reftarget=pagename,
             refid="",
             refdoc=env.docname,
@@ -184,28 +209,45 @@ def create_node(app, env, relative_path, show_button):
 
 
 def doctree_read(app, doctree):
+    """
+    Reads documentation tree for the application and register sources in the generated documentation.
+
+    :param app: application
+    :param doctree: documentation tree
+
+    :return None
+
+    """
     env = app.builder.env
     if not hasattr(env, "_viewcode_modules"):
-        env._viewcode_modules = {}  # type: ignore
+        env._viewcode_modules = {}
 
     if app.builder.name == "singlehtml":
         return
 
-    for objnode in doctree.traverse(example_header):
+    for objnode in doctree.traverse(ExampleHeader):
         filepath = objnode.get("filename")
         relative_path = path.relpath(
             filepath, path.commonprefix([app.config.exampleinclude_sourceroot, filepath])
         )
         modname = relative_path.replace("/", ".")[:-3]
         show_button = register_source(app, env, modname)
-        onlynode = create_node(app, env, relative_path, show_button)
+        onlynode = create_node(env, relative_path, show_button)
 
         objnode.replace_self(onlynode)
 
 
 def setup(app):
+    """
+    Sets the plugin up and returns configuration of the plugin.
+
+    :param app: application.
+    :return json description of the configuration that is needed by the plugin.
+    """
     directives.register_directive("exampleinclude", ExampleInclude)
     app.connect("doctree-read", doctree_read)
     app.add_config_value("exampleinclude_sourceroot", None, "env")
-
-    return {"version": "builtin", "parallel_read_safe": False, "parallel_write_safe": False}
+    if not airflow_theme_is_available:
+        # Sphinx airflow theme has its own styles.
+        app.add_css_file("exampleinclude.css")
+    return {"version": "builtin", "parallel_read_safe": True, "parallel_write_safe": True}

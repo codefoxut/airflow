@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 #
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
@@ -16,30 +15,43 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-#
-import importlib
+from __future__ import annotations
+
 import socket
-from airflow.configuration import (conf, AirflowConfigException)
+from functools import lru_cache
+
+from airflow.configuration import conf
+
+
+# patched version of socket.getfqdn() - see https://github.com/python/cpython/issues/49254
+@lru_cache(maxsize=None)
+def getfqdn(name=""):
+    """Get fully qualified domain name from name.
+    An empty argument is interpreted as meaning the local host.
+    """
+    name = name.strip()
+    if not name or name == "0.0.0.0":
+        name = socket.gethostname()
+    try:
+        addrs = socket.getaddrinfo(name, None, 0, socket.SOCK_DGRAM, 0, socket.AI_CANONNAME)
+    except OSError:
+        pass
+    else:
+        for addr in addrs:
+            if addr[3]:
+                name = addr[3]
+                break
+    return name
+
+
+def get_host_ip_address():
+    """Fetch host ip address."""
+    return socket.gethostbyname(getfqdn())
 
 
 def get_hostname():
     """
     Fetch the hostname using the callable from the config or using
-    `socket.getfqdn` as a fallback.
+    `airflow.utils.net.getfqdn` as a fallback.
     """
-    # First we attempt to fetch the callable path from the config.
-    try:
-        callable_path = conf.get('core', 'hostname_callable')
-    except AirflowConfigException:
-        callable_path = None
-
-    # Then we handle the case when the config is missing or empty. This is the
-    # default behavior.
-    if not callable_path:
-        return socket.getfqdn()
-
-    # Since we have a callable path, we try to import and run it next.
-    module_path, attr_name = callable_path.split(':')
-    module = importlib.import_module(module_path)
-    callable = getattr(module, attr_name)
-    return callable()
+    return conf.getimport("core", "hostname_callable", fallback="airflow.utils.net.getfqdn")()
