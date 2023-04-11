@@ -36,40 +36,44 @@ from typing import TYPE_CHECKING, Any, Dict, Optional, Sequence, Tuple
 from kubernetes import client, watch
 from kubernetes.client import Configuration, models as k8s
 from kubernetes.client.rest import ApiException
+from sqlalchemy.orm import Session
 from urllib3.exceptions import ReadTimeoutError
 
 from airflow.configuration import conf
 from airflow.exceptions import AirflowException, PodMutationHookException, PodReconciliationError
-from airflow.executors.base_executor import BaseExecutor, CommandType
+from airflow.executors.base_executor import BaseExecutor
 from airflow.kubernetes import pod_generator
 from airflow.kubernetes.kube_client import get_kube_client
 from airflow.kubernetes.kube_config import KubeConfig
 from airflow.kubernetes.kubernetes_helper_functions import annotations_to_key, create_pod_id
 from airflow.kubernetes.pod_generator import PodGenerator
-from airflow.models.taskinstance import TaskInstance, TaskInstanceKey
 from airflow.utils import timezone
 from airflow.utils.event_scheduler import EventScheduler
 from airflow.utils.log.logging_mixin import LoggingMixin
-from airflow.utils.session import provide_session
+from airflow.utils.session import NEW_SESSION, provide_session
 from airflow.utils.state import State, TaskInstanceState
+
+if TYPE_CHECKING:
+    from airflow.executors.base_executor import CommandType
+    from airflow.models.taskinstance import TaskInstance, TaskInstanceKey
+
+    # TaskInstance key, command, configuration, pod_template_file
+    KubernetesJobType = Tuple[TaskInstanceKey, CommandType, Any, Optional[str]]
+
+    # key, pod state, pod_id, namespace, resource_version
+    KubernetesResultsType = Tuple[TaskInstanceKey, Optional[str], str, str, str]
+
+    # pod_id, namespace, pod state, annotations, resource_version
+    KubernetesWatchType = Tuple[str, str, Optional[str], Dict[str, str], str]
 
 ALL_NAMESPACES = "ALL_NAMESPACES"
 POD_EXECUTOR_DONE_KEY = "airflow_executor_done"
-
-# TaskInstance key, command, configuration, pod_template_file
-KubernetesJobType = Tuple[TaskInstanceKey, CommandType, Any, Optional[str]]
-
-# key, pod state, pod_id, namespace, resource_version
-KubernetesResultsType = Tuple[TaskInstanceKey, Optional[str], str, str, str]
-
-# pod_id, namespace, pod state, annotations, resource_version
-KubernetesWatchType = Tuple[str, str, Optional[str], Dict[str, str], str]
 
 
 class ResourceVersion:
     """Singleton for tracking resourceVersion from Kubernetes."""
 
-    _instance = None
+    _instance: ResourceVersion | None = None
     resource_version: dict[str, str] = {}
 
     def __new__(cls):
@@ -370,17 +374,17 @@ class AirflowKubernetesScheduler(LoggingMixin):
             if e.status != 404:
                 raise
 
-    def patch_pod_executor_done(self, *, pod_id: str, namespace: str):
+    def patch_pod_executor_done(self, *, pod_name: str, namespace: str):
         """Add a "done" annotation to ensure we don't continually adopt pods"""
-        self.log.debug("Patching pod %s in namespace %s to mark it as done", pod_id, namespace)
+        self.log.debug("Patching pod %s in namespace %s to mark it as done", pod_name, namespace)
         try:
             self.kube_client.patch_namespaced_pod(
-                name=pod_id,
+                name=pod_name,
                 namespace=namespace,
                 body={"metadata": {"labels": {POD_EXECUTOR_DONE_KEY: "True"}}},
             )
         except ApiException as e:
-            self.log.info("Failed to patch pod %s with done annotation. Reason: %s", pod_id, e)
+            self.log.info("Failed to patch pod %s with done annotation. Reason: %s", pod_name, e)
 
     def sync(self) -> None:
         """
@@ -494,7 +498,7 @@ class KubernetesExecutor(BaseExecutor):
         return pods
 
     @provide_session
-    def clear_not_launched_queued_tasks(self, session=None) -> None:
+    def clear_not_launched_queued_tasks(self, session: Session = NEW_SESSION) -> None:
         """
         Clear tasks that were not yet launched, but were previously queued.
 
@@ -511,6 +515,7 @@ class KubernetesExecutor(BaseExecutor):
         """
         if TYPE_CHECKING:
             assert self.kube_client
+        from airflow.models.taskinstance import TaskInstance
 
         self.log.debug("Clearing tasks that have not been launched")
         query = session.query(TaskInstance).filter(
@@ -761,7 +766,7 @@ class KubernetesExecutor(BaseExecutor):
                 self.kube_scheduler.delete_pod(pod_id, namespace)
                 self.log.info("Deleted pod: %s in namespace %s", str(key), str(namespace))
         else:
-            self.kube_scheduler.patch_pod_executor_done(pod_id=pod_id, namespace=namespace)
+            self.kube_scheduler.patch_pod_executor_done(pod_name=pod_id, namespace=namespace)
             self.log.info("Patched pod %s in namespace %s to mark it as done", str(key), str(namespace))
 
         try:
@@ -781,18 +786,20 @@ class KubernetesExecutor(BaseExecutor):
             namespace = pod_override.metadata.namespace
         return namespace or conf.get("kubernetes_executor", "namespace", fallback="default")
 
-    def get_task_log(self, ti: TaskInstance, log: str = "") -> str | tuple[str, dict[str, bool]]:
-
+    def get_task_log(self, ti: TaskInstance, try_number: int) -> tuple[list[str], list[str]]:
+        messages = []
+        log = []
         try:
+            from airflow.kubernetes.kube_client import get_kube_client
             from airflow.kubernetes.pod_generator import PodGenerator
 
             client = get_kube_client()
 
-            log += f"*** Trying to get logs (last 100 lines) from worker pod {ti.hostname} ***\n\n"
+            messages.append(f"Trying to get logs (last 100 lines) from worker pod {ti.hostname}")
             selector = PodGenerator.build_selector_for_k8s_executor_pod(
                 dag_id=ti.dag_id,
                 task_id=ti.task_id,
-                try_number=ti.try_number,
+                try_number=try_number,
                 map_index=ti.map_index,
                 run_id=ti.run_id,
                 airflow_worker=ti.queued_by_job_id,
@@ -816,13 +823,10 @@ class KubernetesExecutor(BaseExecutor):
             )
 
             for line in res:
-                log += line.decode()
-
-            return log
-
-        except Exception as f:
-            log += f"*** Unable to fetch logs from worker pod {ti.hostname} ***\n{str(f)}\n\n"
-            return log, {"end_of_log": True}
+                log.append(line.decode())
+        except Exception as e:
+            messages.append(f"Reading from k8s pod logs failed: {str(e)}")
+        return messages, ["\n".join(log)]
 
     def try_adopt_task_instances(self, tis: Sequence[TaskInstance]) -> Sequence[TaskInstance]:
         tis_to_flush = [ti for ti in tis if not ti.queued_by_job_id]

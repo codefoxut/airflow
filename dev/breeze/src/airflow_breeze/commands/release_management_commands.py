@@ -95,6 +95,7 @@ from airflow_breeze.utils.run_utils import (
     run_compile_www_assets,
 )
 from airflow_breeze.utils.shared_options import get_forced_answer
+from airflow_breeze.utils.suspended_providers import get_suspended_provider_ids
 
 option_debug_release_management = click.option(
     "--debug",
@@ -276,8 +277,16 @@ def prepare_provider_packages(
     perform_environment_checks()
     cleanup_python_generated_files()
     packages_list = list(packages)
+
+    suspended_provider_ids = get_suspended_provider_ids()
     if package_list_file:
-        packages_list.extend([package.strip() for package in package_list_file.readlines()])
+        packages_list.extend(
+            [
+                package.strip()
+                for package in package_list_file.readlines()
+                if package.strip() not in suspended_provider_ids
+            ]
+        )
     shell_params = ShellParams(
         mount_sources=MOUNT_ALL,
         github_repository=github_repository,
@@ -761,7 +770,7 @@ def get_prs_for_package(package_id: str) -> list[int]:
 
 
 @release_management.command(
-    name="generate-issue-content", help="Generates content for issue to test the release."
+    name="generate-issue-content-providers", help="Generates content for issue to test the release."
 )
 @click.option(
     "--github-token",
@@ -783,7 +792,7 @@ def get_prs_for_package(package_id: str) -> list[int]:
 @click.option("--excluded-pr-list", type=str, help="Coma-separated list of PRs to exclude from the issue.")
 @click.option("--disable-progress", is_flag=True, help="Disable progress bar")
 @argument_packages
-def generate_issue_content(
+def generate_issue_content_providers(
     packages: list[str],
     github_token: str,
     suffix: str,

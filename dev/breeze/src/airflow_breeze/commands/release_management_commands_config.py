@@ -112,7 +112,7 @@ RELEASE_MANAGEMENT_PARAMETERS: dict[str, list[dict[str, str | list[str]]]] = {
             ],
         }
     ],
-    "breeze release-management generate-issue-content": [
+    "breeze release-management generate-issue-content-providers": [
         {
             "name": "Generate issue content flags",
             "options": [
@@ -123,5 +123,26 @@ RELEASE_MANAGEMENT_PARAMETERS: dict[str, list[dict[str, str | list[str]]]] = {
                 "--disable-progress",
             ],
         }
+    ],
+    "breeze release-management start-rc-process": [
+        {
+            "name": "Start RC process flags",
+            "options": [
+                "--version",
+                "--previous-version",
+                "--github-token",
+            ],
+        }
+    ],
+    "breeze release-management create-minor-branch": [
+        {
+            "name": "Create minor branch flags",
+            "options": [
+                "--version-branch",
+            ],
+        }
+    ],
+    "breeze release-management start-release": [
+        {"name": "Start release flags", "options": ["--release-candidate", "--previous-release"]}
     ],
 }
