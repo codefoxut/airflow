@@ -32,10 +32,10 @@ from airflow.providers.google.cloud.operators.dataproc import (
 from airflow.utils.trigger_rule import TriggerRule
 
 ENV_ID = os.environ.get("SYSTEM_TESTS_ENV_ID")
-DAG_ID = "dataproc_update"
-PROJECT_ID = os.environ.get("SYSTEM_TESTS_GCP_PROJECT", "")
+DAG_ID = "dataproc_cluster_def"
+PROJECT_ID = os.environ.get("SYSTEM_TESTS_GCP_PROJECT")
 
-CLUSTER_NAME = f"cluster-dataproc-update-{ENV_ID}"
+CLUSTER_NAME = f"cluster-dataproc-def-{ENV_ID}"
 REGION = "europe-west1"
 ZONE = "europe-west1-b"
 
@@ -51,6 +51,16 @@ CLUSTER_CONFIG = {
         "num_instances": 2,
         "machine_type_uri": "n1-standard-4",
         "disk_config": {"boot_disk_type": "pd-standard", "boot_disk_size_gb": 1024},
+    },
+    "secondary_worker_config": {
+        "num_instances": 1,
+        "machine_type_uri": "n1-standard-4",
+        "disk_config": {
+            "boot_disk_type": "pd-standard",
+            "boot_disk_size_gb": 1024,
+        },
+        "is_preemptible": True,
+        "preemptibility": "PREEMPTIBLE",
     },
 }
 

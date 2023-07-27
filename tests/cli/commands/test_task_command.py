@@ -23,6 +23,7 @@ import logging
 import os
 import re
 import shutil
+import sys
 import tempfile
 import unittest
 from argparse import ArgumentParser
@@ -33,6 +34,7 @@ from unittest.mock import sentinel
 
 import pendulum
 import pytest
+import sqlalchemy.exc
 
 from airflow import DAG
 from airflow.cli import cli_parser
@@ -47,6 +49,7 @@ from airflow.utils import timezone
 from airflow.utils.session import create_session
 from airflow.utils.state import State
 from airflow.utils.types import DagRunType
+from setup import AIRFLOW_SOURCES_ROOT
 from tests.test_utils.config import conf_vars
 from tests.test_utils.db import clear_db_pools, clear_db_runs
 
@@ -246,7 +249,7 @@ class TestCliTasks:
             assert ti.xcom_pull(ti.task_id) == new_file_path.as_posix()
 
     @mock.patch("airflow.cli.commands.task_command.LocalTaskJobRunner")
-    def test_run_with_existing_dag_run_id(self, mock_local_job):
+    def test_run_with_existing_dag_run_id(self, mock_local_job_runner):
         """
         Test that we can run with existing dag_run_id
         """
@@ -260,9 +263,10 @@ class TestCliTasks:
             task0_id,
             self.run_id,
         ]
-        mock_local_job.return_value.job_type = "LocalTaskJob"
+        mock_local_job_runner.return_value.job_type = "LocalTaskJob"
         task_command.task_run(self.parser.parse_args(args0), dag=self.dag)
-        mock_local_job.assert_called_once_with(
+        mock_local_job_runner.assert_called_once_with(
+            job=mock.ANY,
             task_instance=mock.ANY,
             mark_success=False,
             ignore_all_deps=True,
@@ -274,6 +278,42 @@ class TestCliTasks:
             pool=None,
             external_executor_id=None,
         )
+
+    @pytest.mark.parametrize(
+        "from_db",
+        [True, False],
+    )
+    @mock.patch("airflow.cli.commands.task_command.LocalTaskJobRunner")
+    def test_run_with_read_from_db(self, mock_local_job_runner, caplog, from_db):
+        """
+        Test that we can run with read from db
+        """
+        task0_id = self.dag.task_ids[0]
+        args0 = [
+            "tasks",
+            "run",
+            "--ignore-all-dependencies",
+            "--local",
+            self.dag_id,
+            task0_id,
+            self.run_id,
+        ] + (["--read-from-db"] if from_db else [])
+        mock_local_job_runner.return_value.job_type = "LocalTaskJob"
+        task_command.task_run(self.parser.parse_args(args0))
+        mock_local_job_runner.assert_called_once_with(
+            job=mock.ANY,
+            task_instance=mock.ANY,
+            mark_success=False,
+            ignore_all_deps=True,
+            ignore_depends_on_past=False,
+            wait_for_past_depends_before_skipping=False,
+            ignore_task_deps=False,
+            ignore_ti_state=False,
+            pickle_id=None,
+            pool=None,
+            external_executor_id=None,
+        )
+        assert ("Filling up the DagBag from" in caplog.text) != from_db
 
     @mock.patch("airflow.cli.commands.task_command.LocalTaskJobRunner")
     def test_run_raises_when_theres_no_dagrun(self, mock_local_job):
@@ -462,6 +502,20 @@ class TestCliTasks:
         assert 'echo "2022-01-01"' in output
         assert 'echo "2022-01-08"' in output
 
+    @mock.patch("airflow.cli.commands.task_command.select")
+    @mock.patch("airflow.cli.commands.task_command.Session.scalars")
+    @mock.patch("airflow.cli.commands.task_command.DagRun")
+    def test_task_render_with_custom_timetable(self, mock_dagrun, mock_scalars, mock_select):
+        """
+        when calling `tasks render` on dag with custom timetable, the DagRun object should be created with
+         data_intervals.
+        """
+        mock_scalars.side_effect = sqlalchemy.exc.NoResultFound
+        task_command.task_render(
+            self.parser.parse_args(["tasks", "render", "example_workday_timetable", "run_this", "2022-01-01"])
+        )
+        assert "data_interval" in mock_dagrun.call_args.kwargs
+
     def test_cli_run_when_pickle_and_dag_cli_method_selected(self):
         """
         tasks run should return an AirflowException when invalid pickle_id is passed
@@ -646,6 +700,7 @@ class TestLogsfromTaskRunCommand:
 
         task_command.task_run(args)
         mock_local_job.assert_called_once_with(
+            job=mock.ANY,
             task_instance=mock.ANY,
             mark_success=False,
             pickle_id=None,
@@ -667,6 +722,7 @@ class TestLogsfromTaskRunCommand:
         with mock.patch.dict(os.environ, {"external_executor_id": "12345FEDCBA"}):
             task_command.task_run(args)
             mock_local_job.assert_called_once_with(
+                job=mock.ANY,
                 task_instance=mock.ANY,
                 mark_success=False,
                 pickle_id=None,
@@ -693,9 +749,11 @@ class TestLogsfromTaskRunCommand:
         """
         import subprocess
 
-        with mock.patch.dict("os.environ", AIRFLOW_IS_K8S_EXECUTOR_POD=is_k8s):
+        with mock.patch.dict(
+            "os.environ", AIRFLOW_IS_K8S_EXECUTOR_POD=is_k8s, PYTHONPATH=os.fspath(AIRFLOW_SOURCES_ROOT)
+        ):
             with subprocess.Popen(
-                args=["airflow", *self.task_args, "-S", self.dag_path],
+                args=[sys.executable, "-m", "airflow", *self.task_args, "-S", self.dag_path],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
             ) as process:

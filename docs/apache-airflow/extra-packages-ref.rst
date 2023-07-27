@@ -44,13 +44,9 @@ python dependencies for the provided package.
 +---------------------+-----------------------------------------------------+----------------------------------------------------------------------------+
 | async               | ``pip install 'apache-airflow[async]'``             | Async worker classes for Gunicorn                                          |
 +---------------------+-----------------------------------------------------+----------------------------------------------------------------------------+
-| celery              | ``pip install 'apache-airflow[celery]'``            | CeleryExecutor (also installs the celery provider package!)                |
-+---------------------+-----------------------------------------------------+----------------------------------------------------------------------------+
 | cgroups             | ``pip install 'apache-airflow[cgroups]'``           | Needed To use CgroupTaskRunner                                             |
 +---------------------+-----------------------------------------------------+----------------------------------------------------------------------------+
-| cncf.kubernetes     | ``pip install 'apache-airflow[cncf.kubernetes]'``   | Kubernetes Executor (also installs the Kubernetes provider package)        |
-+---------------------+-----------------------------------------------------+----------------------------------------------------------------------------+
-| dask                | ``pip install 'apache-airflow[dask]'``              | DaskExecutor                                                               |
+| daskexecutor        | ``pip install 'apache-airflow[daskexecutor]'``      | DaskExecutor  ((also installs the Daskexecutor provider package)           |
 +---------------------+-----------------------------------------------------+----------------------------------------------------------------------------+
 | deprecated_api      | ``pip install 'apache-airflow[deprecated_api]'``    | Deprecated, experimental API that is replaced with the new REST API        |
 +---------------------+-----------------------------------------------------+----------------------------------------------------------------------------+
@@ -100,7 +96,7 @@ with a consistent set of dependencies based on constraint files provided by Airf
     :substitutions:
 
     pip install apache-airflow[google,amazon,apache.spark]==|version| \
-      --constraint "https://raw.githubusercontent.com/apache/airflow/constraints-|version|/constraints-3.7.txt"
+      --constraint "https://raw.githubusercontent.com/apache/airflow/constraints-|version|/constraints-3.8.txt"
 
 Note, that this will install providers in the versions that were released at the time of Airflow |version| release. You can later
 upgrade those providers manually if you want to use latest versions of the providers.
@@ -134,6 +130,8 @@ custom bash/python providers).
 +---------------------+-----------------------------------------------------+------------------------------------------------+
 | apache.impala       | ``pip install 'apache-airflow[apache.impala]'``     | All Impala related operators & hooks           |
 +---------------------+-----------------------------------------------------+------------------------------------------------+
+| apache.kafka        | ``pip install 'apache-airflow[apache.kafka]'``      | All Kafka related operators & hooks            |
++---------------------+-----------------------------------------------------+------------------------------------------------+
 | apache.kylin        | ``pip install 'apache-airflow[apache.kylin]'``      | All Kylin related operators & hooks            |
 +---------------------+-----------------------------------------------------+------------------------------------------------+
 | apache.livy         | ``pip install 'apache-airflow[apache.livy]'``       | All Livy related operators, hooks & sensors    |
@@ -162,6 +160,8 @@ These are extras that add dependencies needed for integration with external serv
 +---------------------+-----------------------------------------------------+-----------------------------------------------------+
 | alibaba             | ``pip install 'apache-airflow[alibaba]'``           | Alibaba Cloud                                       |
 +---------------------+-----------------------------------------------------+-----------------------------------------------------+
+| apprise             | ``pip install 'apache-airflow[apprise]'``           | Apprise Notification                                |
++---------------------+-----------------------------------------------------+-----------------------------------------------------+
 | amazon              | ``pip install 'apache-airflow[amazon]'``            | Amazon Web Services                                 |
 +---------------------+-----------------------------------------------------+-----------------------------------------------------+
 | asana               | ``pip install 'apache-airflow[asana]'``             | Asana hooks and operators                           |
@@ -183,6 +183,8 @@ These are extras that add dependencies needed for integration with external serv
 | discord             | ``pip install 'apache-airflow[discord]'``           | Discord hooks and sensors                           |
 +---------------------+-----------------------------------------------------+-----------------------------------------------------+
 | facebook            | ``pip install 'apache-airflow[facebook]'``          | Facebook Social                                     |
++---------------------+-----------------------------------------------------+-----------------------------------------------------+
+| github              | ``pip install 'apache-airflow[github]'``            | GitHub operators and hook                           |
 +---------------------+-----------------------------------------------------+-----------------------------------------------------+
 | google              | ``pip install 'apache-airflow[google]'``            | Google Cloud                                        |
 +---------------------+-----------------------------------------------------+-----------------------------------------------------+
@@ -214,8 +216,6 @@ These are extras that add dependencies needed for integration with external serv
 +---------------------+-----------------------------------------------------+-----------------------------------------------------+
 | vertica             | ``pip install 'apache-airflow[vertica]'``           | Vertica hook support as an Airflow backend          |
 +---------------------+-----------------------------------------------------+-----------------------------------------------------+
-| yandex              | ``pip install 'apache-airflow[yandex]'``            | Yandex.cloud hooks and operators                    |
-+---------------------+-----------------------------------------------------+-----------------------------------------------------+
 | zendesk             | ``pip install 'apache-airflow[zendesk]'``           | Zendesk hooks                                       |
 +---------------------+-----------------------------------------------------+-----------------------------------------------------+
 
@@ -229,6 +229,10 @@ These are extras that add dependencies needed for integration with other softwar
 | extra               | install command                                     | enables                                   |
 +=====================+=====================================================+===========================================+
 | arangodb            | ``pip install 'apache-airflow[arangodb]'``          | ArangoDB operators, sensors and hook      |
++---------------------+-----------------------------------------------------+-------------------------------------------+
+| celery              | ``pip install 'apache-airflow[celery]'``            | CeleryExecutor                            |
++---------------------+-----------------------------------------------------+-------------------------------------------+
+| cncf.kubernetes     | ``pip install 'apache-airflow[cncf.kubernetes]'``   | Kubernetes Executor                       |
 +---------------------+-----------------------------------------------------+-------------------------------------------+
 | docker              | ``pip install 'apache-airflow[docker]'``            | Docker hooks and operators                |
 +---------------------+-----------------------------------------------------+-------------------------------------------+
@@ -293,6 +297,8 @@ These are extras that provide support for integration with external systems via 
 | microsoft.psrp      | ``pip install 'apache-airflow[microsoft.psrp]'``    | PSRP hooks and operators             |              |
 +---------------------+-----------------------------------------------------+--------------------------------------+--------------+
 | microsoft.winrm     | ``pip install 'apache-airflow[microsoft.winrm]'``   | WinRM hooks and operators            |              |
++---------------------+-----------------------------------------------------+--------------------------------------+--------------+
+| openlineage         | ``pip install 'apache-airflow[openlineage]'``       | Sending OpenLineage events           |              |
 +---------------------+-----------------------------------------------------+--------------------------------------+--------------+
 | papermill           | ``pip install 'apache-airflow[papermill]'``         | Papermill hooks and operators        |              |
 +---------------------+-----------------------------------------------------+--------------------------------------+--------------+
@@ -366,6 +372,8 @@ so there is no replacement for ``crypto`` extra.
 | cassandra           | apache.cassandra            |
 +---------------------+-----------------------------+
 | crypto              |                             |
++---------------------+-----------------------------+
+| dask                | daskexecutor                |
 +---------------------+-----------------------------+
 | druid               | apache.druid                |
 +---------------------+-----------------------------+

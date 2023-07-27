@@ -232,7 +232,8 @@ class TestGetTaskInstance(TestTaskInstanceEndpoint):
         )[0]
         ti.trigger = Trigger("none", {})
         ti.trigger.created_date = now
-        ti.triggerer_job = Job(job_runner=TriggererJobRunner())
+        ti.triggerer_job = Job()
+        TriggererJobRunner(job=ti.triggerer_job)
         ti.triggerer_job.state = "running"
         session.commit()
         response = self.client.get(
@@ -873,6 +874,14 @@ class TestGetTaskInstancesBatch(TestTaskInstanceEndpoint):
             json={"dag_ids": ["example_python_operator", "example_skip_dag"]},
         )
         assert response.status_code == 403
+
+    def test_should_raise_400_for_no_json(self):
+        response = self.client.post(
+            "/api/v1/dags/~/dagRuns/~/taskInstances/list",
+            environ_overrides={"REMOTE_USER": "test"},
+        )
+        assert response.status_code == 400
+        assert response.json["detail"] == "Request body must not be empty"
 
     @pytest.mark.parametrize(
         "payload, expected",
@@ -1794,14 +1803,16 @@ class TestPatchTaskInstance(TestTaskInstanceEndpoint):
                     "dry_run": True,
                     "new_state": "failede",
                 },
-                f"'failede' is not one of ['{State.SUCCESS}', '{State.FAILED}'] - 'new_state'",
+                f"'failede' is not one of ['{State.SUCCESS}', '{State.FAILED}', '{State.SKIPPED}']"
+                " - 'new_state'",
             ),
             (
                 {
                     "dry_run": True,
                     "new_state": "queued",
                 },
-                f"'queued' is not one of ['{State.SUCCESS}', '{State.FAILED}'] - 'new_state'",
+                f"'queued' is not one of ['{State.SUCCESS}', '{State.FAILED}', '{State.SKIPPED}']"
+                " - 'new_state'",
             ),
         ],
     )

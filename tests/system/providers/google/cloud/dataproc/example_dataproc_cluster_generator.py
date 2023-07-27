@@ -37,7 +37,7 @@ from airflow.utils.trigger_rule import TriggerRule
 
 ENV_ID = os.environ.get("SYSTEM_TESTS_ENV_ID")
 DAG_ID = "dataproc_cluster_generation"
-PROJECT_ID = os.environ.get("SYSTEM_TESTS_GCP_PROJECT", "")
+PROJECT_ID = os.environ.get("SYSTEM_TESTS_GCP_PROJECT")
 
 BUCKET_NAME = f"bucket_{DAG_ID}_{ENV_ID}"
 CLUSTER_NAME = f"dataproc-cluster-gen-{ENV_ID}"
@@ -59,6 +59,8 @@ CLUSTER_GENERATOR_CONFIG = ClusterGenerator(
     storage_bucket=BUCKET_NAME,
     init_actions_uris=[f"gs://{BUCKET_NAME}/{INIT_FILE}"],
     metadata={"PIP_PACKAGES": "pyyaml requests pandas openpyxl"},
+    num_preemptible_workers=1,
+    preemptibility="PREEMPTIBLE",
 ).make()
 
 # [END how_to_cloud_dataproc_create_cluster_generate_cluster_config]

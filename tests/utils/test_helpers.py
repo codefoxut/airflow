@@ -24,6 +24,8 @@ import pytest
 
 from airflow import AirflowException
 from airflow.jobs.base_job_runner import BaseJobRunner
+from airflow.jobs.job import Job
+from airflow.serialization.pydantic.job import JobPydantic
 from airflow.utils import helpers, timezone
 from airflow.utils.helpers import (
     at_most_one,
@@ -307,6 +309,8 @@ class TestHelpers:
                     "c": {"b": "", "c": "hi", "d": ["", 0, "1"]},
                     "d": ["", 0, "1"],
                     "e": ["", 0, {"b": "", "c": "hi", "d": ["", 0, "1"]}, ["", 0, "1"], [""]],
+                    "f": {},
+                    "g": [""],
                 },
             ),
             (
@@ -322,16 +326,18 @@ class TestHelpers:
     def test_prune_dict(self, mode, expected):
         l1 = ["", 0, "1", None]
         d1 = {"a": None, "b": "", "c": "hi", "d": l1}
-        d2 = {"a": None, "b": "", "c": d1, "d": l1, "e": [None, "", 0, d1, l1, [""]]}
+        d2 = {"a": None, "b": "", "c": d1, "d": l1, "e": [None, "", 0, d1, l1, [""]], "f": {}, "g": [""]}
         assert prune_dict(d2, mode=mode) == expected
 
 
 class MockJobRunner(BaseJobRunner):
     job_type = "MockJob"
 
-    def __init__(self, func=None):
+    def __init__(self, job: Job | JobPydantic, func=None):
+        super().__init__(job)
+        self.job = job
+        self.job.job_type = self.job_type
         self.func = func
-        super().__init__()
 
     def _execute(self):
         if self.func is not None:

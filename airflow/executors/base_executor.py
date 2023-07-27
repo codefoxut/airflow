@@ -38,7 +38,8 @@ PARALLELISM: int = conf.getint("core", "PARALLELISM")
 if TYPE_CHECKING:
     from airflow.callbacks.base_callback_sink import BaseCallbackSink
     from airflow.callbacks.callback_requests import CallbackRequest
-    from airflow.models.taskinstance import TaskInstance, TaskInstanceKey
+    from airflow.models.taskinstance import TaskInstance
+    from airflow.models.taskinstancekey import TaskInstanceKey
 
     # Command to execute - list of strings
     # the first element is always "airflow".
@@ -77,14 +78,11 @@ class RunningRetryAttemptType:
 
     @property
     def elapsed(self):
-        """Seconds since first attempt"""
+        """Seconds since first attempt."""
         return (pendulum.now("UTC") - self.first_attempt_time).total_seconds()
 
     def can_try_again(self):
-        """
-        If there has been at least one try greater than MIN_SECONDS after first attempt,
-        then return False.  Otherwise, return True.
-        """
+        """Return False if there has been at least one try greater than MIN_SECONDS, otherwise return True."""
         if self.tries_after_min > 0:
             return False
 
@@ -99,11 +97,9 @@ class RunningRetryAttemptType:
 
 class BaseExecutor(LoggingMixin):
     """
-    Class to derive in order to implement concrete executors.
-    Such as, Celery, Kubernetes, Local, Sequential and the likes.
+    Base class to inherit for concrete executors such as Celery, Kubernetes, Local, Sequential, etc.
 
-    :param parallelism: how many jobs should run at one time. Set to
-        ``0`` for infinity.
+    :param parallelism: how many jobs should run at one time. Set to ``0`` for infinity.
     """
 
     supports_ad_hoc_ti_run: bool = False
@@ -200,6 +196,7 @@ class BaseExecutor(LoggingMixin):
     def sync(self) -> None:
         """
         Sync will get called periodically by the heartbeat method.
+
         Executors should override this to perform gather statuses.
         """
 
@@ -217,9 +214,19 @@ class BaseExecutor(LoggingMixin):
         self.log.debug("%s in queue", num_queued_tasks)
         self.log.debug("%s open slots", open_slots)
 
-        Stats.gauge("executor.open_slots", open_slots)
-        Stats.gauge("executor.queued_tasks", num_queued_tasks)
-        Stats.gauge("executor.running_tasks", num_running_tasks)
+        Stats.gauge(
+            "executor.open_slots", value=open_slots, tags={"status": "open", "name": self.__class__.__name__}
+        )
+        Stats.gauge(
+            "executor.queued_tasks",
+            value=num_queued_tasks,
+            tags={"status": "queued", "name": self.__class__.__name__},
+        )
+        Stats.gauge(
+            "executor.running_tasks",
+            value=num_running_tasks,
+            tags={"status": "running", "name": self.__class__.__name__},
+        )
 
         self.trigger_tasks(open_slots)
 
@@ -374,6 +381,19 @@ class BaseExecutor(LoggingMixin):
 
     def terminate(self):
         """This method is called when the daemon receives a SIGTERM."""
+        raise NotImplementedError()
+
+    def cleanup_stuck_queued_tasks(self, tis: list[TaskInstance]) -> list[str]:  # pragma: no cover
+        """
+        Handle remnants of tasks that were failed because they were stuck in queued.
+
+        Tasks can get stuck in queued. If such a task is detected, it will be marked
+        as `UP_FOR_RETRY` if the task instance has remaining retries or marked as `FAILED`
+        if it doesn't.
+
+        :param tis: List of Task Instances to clean up
+        :return: List of readable task instances for a warning message
+        """
         raise NotImplementedError()
 
     def try_adopt_task_instances(self, tis: Sequence[TaskInstance]) -> Sequence[TaskInstance]:
